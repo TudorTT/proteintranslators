@@ -24,8 +24,9 @@ CODON_TABLE = {
     "GUG": "Val", "GCG": "Ala", "GAG": "Glu",  "GGG": "Gly",
 }
 
-
 VALID_BASES = set("ACGU")
+LABEL_WIDTH = 12
+INDENT = " " * (2 + LABEL_WIDTH + 3)
 
 
 def read_input(args) -> str:
@@ -72,48 +73,27 @@ def validate(seq: str) -> None:
         raise ValueError("The sequence is shorter than one codon (3 bases).")
 
 
-def split_codons(seq: str) -> tuple[list[str], str]:
-    usable = len(seq) - len(seq) % 3
-    codons = [seq[i:i + 3] for i in range(0, usable, 3)]
-    return codons, seq[usable:]
+def read_from_start(seq: str, start: int) -> tuple[list[str], bool]:
+    codons = []
+    for i in range(start, len(seq) - 2, 3):
+        codon = seq[i:i + 3]
+        codons.append(codon)
+        if CODON_TABLE[codon] == "Stop":
+            return codons, True
+    return codons, False
 
 
-def translate(codons: list[str]) -> list[str]:
-    return [CODON_TABLE[codon] for codon in codons]
-
-
-def print_result(seq: str, codons: list[str], leftover: str,
-                 protein: list[str], show_codons: bool) -> None:
-    print()
-    print(f"mRNA length : {len(seq)} bases")
-    print(f"Codons read : {len(codons)}")
-    if leftover:
-        print(f"Warning     : length is not a multiple of 3 - the last "
-              f"{len(leftover)} base(s) '{leftover}' were ignored.")
-
-    stop_positions = [i + 1 for i, aa in enumerate(protein) if aa == "Stop"]
-    if stop_positions:
-        print(f"Stop codons : at codon # {', '.join(map(str, stop_positions))}")
-    else:
-        print("Stop codons : none found")
-
-    print("\nProtein :")
-    print(textwrap.fill("-".join(protein), width=80))
-
-
-
-    if show_codons:
-        print("\n   #   Base  Codon  Amino acid")
-        for i, (codon, aa) in enumerate(zip(codons, protein)):
-            print(f"{i + 1:4}  {3 * i + 1:5}  {codon:5}  {aa}")
+def field(label: str, value: str) -> None:
+    print(f"  {label:<{LABEL_WIDTH}} : {value}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Translate an mRNA coding sequence into an amino acid sequence."
+        description="Find the closest AUG in an mRNA sequence and translate it "
+                    "up to the stop codon."
     )
     parser.add_argument("sequence", nargs="*",
-                        help="mRNA sequence, e.g. AUGUUUGGCUAA (spaces allowed)")
+                        help="mRNA sequence, e.g. GGAUGUUUGGCUAA (spaces allowed)")
     parser.add_argument("-f", "--file", help="read the sequence from a text or FASTA file")
     parser.add_argument("-c", "--codons", action="store_true",
                         help="also print the codon-by-codon translation")
@@ -129,9 +109,34 @@ def main() -> None:
         print(f"Error: {err}", file=sys.stderr)
         sys.exit(1)
 
-    codons, leftover = split_codons(seq)
-    protein = translate(codons)
-    print_result(seq, codons, leftover, protein, args.codons)
+    print()
+    field("mRNA length", f"{len(seq)} bases")
+
+    start = seq.find("AUG")
+    if start == -1:
+        field("AUG", "none - there is no start codon in the sequence")
+        return
+
+    codons, has_stop = read_from_start(seq, start)
+    protein = [CODON_TABLE[codon] for codon in codons]
+    amino_acids = len(protein) - 1 if has_stop else len(protein)
+
+    field("AUG at base", f"{start + 1} (frame {start % 3 + 1})")
+    if has_stop:
+        stop_base = start + 3 * (len(codons) - 1) + 1
+        field("Stop", f"{codons[-1]} at base {stop_base}")
+    else:
+        field("Stop", "none - the sequence ends before a stop codon")
+    field("Amino acids", str(amino_acids))
+
+    print(textwrap.fill("-".join(protein), width=80,
+                        initial_indent=f"  {'Protein':<{LABEL_WIDTH}} : ",
+                        subsequent_indent=INDENT))
+
+    if args.codons:
+        print("\n     #   Base  Codon  Amino acid")
+        for i, (codon, aa) in enumerate(zip(codons, protein)):
+            print(f"  {i + 1:4}  {start + 3 * i + 1:5}  {codon:5}  {aa}")
 
 
 if __name__ == "__main__":
